@@ -20,6 +20,7 @@ Item {
     property string fontLabel: "sans-serif"     // vai trò label
     property string fontData: "monospace"       // vai trò data
     property bool previewMode: false            // true: không nhận phím, không steal focus (dùng trong hub)
+    property string preset: "paper"             // theme: paper|ink|mono-white|mono-black|accent|follow
     property real tint: 0.12
     property real inkDarken: 1.5
     property int bootMs: 800
@@ -49,7 +50,7 @@ Item {
     height: px(600)
 
     // ----- bảng màu giấy/mực: công thức nằm ở lib/SumiTheme.qml -----
-    SumiTheme { id: th; bgColor: card.bgColor; fgColor: card.fgColor; accentColor: card.accentColor; tint: card.tint; inkDarken: card.inkDarken }
+    SumiTheme { id: th; bgColor: card.bgColor; fgColor: card.fgColor; accentColor: card.accentColor; tint: card.tint; inkDarken: card.inkDarken; preset: card.preset }
     SumiKeyMap { id: km }
     readonly property color cDanger: dangerColor
     readonly property color paper: th.paper

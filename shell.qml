@@ -20,6 +20,7 @@ ShellRoot {
     readonly property string fontData: cfg.font("data", "monospace")
     readonly property color dangerColor: "#E63946"
 
+    readonly property string themePreset: cfg.look("theme", "paper")
     readonly property real tint: cfg.lookNum("tint", 0, 0.6, 0.12)
     readonly property real inkDarken: cfg.lookNum("inkDarken", 1, 2.5, 1.5)
     readonly property real scanOpacity: cfg.lookNum("scanlineOpacity", 0, 0.2, 0.05)
@@ -103,6 +104,7 @@ ShellRoot {
                 fontTitle: root.fontTitle
                 fontLabel: root.fontLabel
                 fontData: root.fontData
+                preset: root.themePreset
                 tint: root.tint
                 inkDarken: root.inkDarken
                 bootMs: root.bootMs

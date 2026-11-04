@@ -3,9 +3,9 @@
   "name": "KAKUNIN 確認",
   "kanji": "確認",
   "description": "Hỏi xác nhận trước khi đóng cửa sổ được bảo vệ. Exit code 0 = yes, 1 = no.",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "kind": "oneshot",
-  "requires_lib": ">=1.2 <2.0",
+  "requires_lib": ">=1.0 <2.0",
   "config_version": 1,
   "run": "quickshell -p {dir}/shell.qml",
   "ipc_target": "sumi-kakunin",
@@ -15,7 +15,8 @@
   "options": [
     { "key": "acceptKeysDelayMs", "type": "int", "default": 180, "min": 0, "max": 1000, "label": "KEY GUARD MS" },
     { "key": "crtBootMs", "type": "int", "default": 800, "min": 0, "max": 3000, "label": "CRT BOOT MS" },
-    { "key": "crtOutroMs", "type": "int", "default": 460, "min": 0, "max": 3000, "label": "CRT OUTRO MS" }
+    { "key": "crtOutroMs", "type": "int", "default": 460, "min": 0, "max": 3000, "label": "CRT OUTRO MS" },
+    { "key": "protectedClasses", "type": "stringlist", "default": ["zen*", "Minecraft*"], "label": "PROTECTED WINDOW CLASSES" }
   ],
   "keybinds": [
     { "action": "yes", "default": "Y", "label": "YES" },

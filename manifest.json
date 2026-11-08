@@ -7,7 +7,7 @@
   "kind": "oneshot",
   "requires_lib": ">=1.2 <2.0",
   "config_version": 1,
-  "run": "quickshell -p {dir}/shell.qml",
+  "run": "bash {dir}/kakunin.sh",
   "ipc_target": "sumi-kakunin",
   "functions": [
     { "id": "confirm", "label": "CONFIRM", "objects": [] }

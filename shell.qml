@@ -4,9 +4,13 @@ import Quickshell.Wayland
 import QtQuick
 import "lib"
 
-// KAKUNIN 確認 - dialog xác nhận đóng cửa sổ được bảo vệ (gọi từ safe-close.sh qua `sumi kakunin`).
-// Hợp đồng: thoát mã 0 = Yes (đóng app), mã 1 = No / Esc / bấm ra ngoài.
-// Biến môi trường đọc vào: CONFIRM_APP, CONFIRM_TITLE, CONFIRM_WS, CONFIRM_MONITOR (đều tuỳ chọn).
+// KAKUNIN 確認 - đóng cửa sổ đang focus, hỏi xác nhận nếu class khớp OPTION protectedClasses.
+// Hai chế độ:
+//  - TỰ ĐỘNG (mặc định, `sumi kakunin` gắn thẳng vào keybind): tự hỏi hyprctl cửa sổ đang focus; class không nằm trong
+//    protectedClasses thì đóng ngay, nằm trong danh sách thì hiện dialog, Yes mới đóng. Không cần script ngoài.
+//  - TƯƠNG THÍCH (có biến môi trường CONFIRM_APP, vd từ safe-close.sh cũ): chỉ hiện dialog, KHÔNG tự đóng cửa sổ.
+// Mã thoát: 0 = đã đóng / Yes, 1 = No / Esc / bấm ra ngoài / không có cửa sổ.
+// Biến môi trường (chế độ tương thích): CONFIRM_APP, CONFIRM_TITLE, CONFIRM_WS, CONFIRM_MONITOR (đều tuỳ chọn).
 // Chạy độc lập: không cần hub, không đụng mạng; lỗi config thì dùng mặc định.
 ShellRoot {
     id: root
@@ -31,10 +35,82 @@ ShellRoot {
     readonly property int outroMs: cfg.optionNum("crtOutroMs", 0, 3000, 460)
     readonly property int inputDelayMs: cfg.optionNum("acceptKeysDelayMs", 0, 1000, 180)
 
-    readonly property string appName: Quickshell.env("CONFIRM_APP") || "ứng dụng"
-    readonly property string appTitle: Quickshell.env("CONFIRM_TITLE") || ""
-    readonly property string appWs: Quickshell.env("CONFIRM_WS") || ""
-    readonly property string monName: Quickshell.env("CONFIRM_MONITOR") || ""
+    // chế độ tương thích khi có CONFIRM_APP; ngược lại tự dò cửa sổ qua hyprctl
+    readonly property bool auto: !Quickshell.env("CONFIRM_APP")
+    property string appName: Quickshell.env("CONFIRM_APP") || ""
+    property string appTitle: Quickshell.env("CONFIRM_TITLE") || ""
+    property string appWs: Quickshell.env("CONFIRM_WS") || ""
+    property string monName: Quickshell.env("CONFIRM_MONITOR") || ""
+    property int monId: -1
+    property bool showDialog: !auto       // tự động: chỉ hiện sau khi biết cửa sổ thuộc danh sách bảo vệ
+    property bool gotWindow: false
+
+    // ===== Danh sách bảo vệ: glob (chữ, số, _ . * ? -). Chưa đặt = mặc định; [] = không bảo vệ app nào =====
+    readonly property var defaultProtected: ["zen*", "Minecraft*"]
+    function protectedList() {
+        const v = cfg.option("protectedClasses", null)
+        if (!Array.isArray(v)) return defaultProtected
+        return v.filter(s => typeof s === "string" && /^[A-Za-z0-9_.*?-]{1,64}$/.test(s))
+    }
+    function globToRe(g) { return new RegExp("^" + g.replace(/\./g, "\\.").replace(/\*/g, ".*").replace(/\?/g, ".") + "$") }
+    function isProtected(cls, list) {
+        for (let i = 0; i < list.length; i++) if (globToRe(list[i]).test(cls)) return true
+        return false
+    }
+
+    // ===== Chế độ tự động: đọc cửa sổ focus + danh sách màn hình SONG SONG -> quyết định hỏi hay đóng luôn =====
+    property string winAddr: ""
+    property bool wantAsk: false
+    property bool monDone: false
+    property string monJson: ""
+    function onWindow(txt) {
+        let w = {}
+        try { w = JSON.parse(txt) } catch (e) { w = {} }
+        const cls = (w && w["class"] !== undefined && w["class"] !== null) ? String(w["class"]) : ""
+        gotWindow = true
+        if (cls === "") { Qt.exit(1); return }
+        appName = cls
+        appTitle = w.title ? String(w.title) : ""
+        appWs = (w.workspace && w.workspace.name !== undefined) ? String(w.workspace.name) : ""
+        monId = (typeof w.monitor === "number") ? w.monitor : -1
+        winAddr = (typeof w.address === "string" && /^0x[0-9a-fA-F]+$/.test(w.address)) ? w.address : ""
+        if (isProtected(cls, protectedList())) { wantAsk = true; resolveMon() }
+        else closeWindow()
+    }
+    function onMonitors(txt) { monJson = txt; monDone = true; resolveMon() }
+    function resolveMon() {
+        if (!wantAsk || !monDone) return
+        try {
+            const a = JSON.parse(monJson)
+            for (let i = 0; i < a.length; i++) if (a[i].id === monId) { monName = String(a[i].name); break }
+        } catch (e) { }
+        showDialog = true
+    }
+    // Đóng ĐÚNG cửa sổ đã hỏi theo địa chỉ (Lua dispatcher của Hyprland), không phụ thuộc focus/vị trí chuột lúc bấm Yes.
+    // Kết quả hyprctl ghi vào /tmp/sumi-kakunin.log.
+    function closeWindow() {
+        if (winAddr === "") { Qt.exit(1); return }
+        closeProc.command = ["sh", "-c",
+            "{ echo \"close " + winAddr + "\"; hyprctl dispatch 'hl.dsp.window.close({ window = \"address:" + winAddr + "\" })'; } >>/tmp/sumi-kakunin.log 2>&1"]
+        closeProc.running = true
+    }
+    Process {
+        id: activeProc
+        command: ["hyprctl", "activewindow", "-j"]
+        running: root.auto
+        stdout: StdioCollector { onStreamFinished: root.onWindow(this.text) }
+    }
+    Process {
+        id: monProc
+        command: ["hyprctl", "monitors", "-j"]
+        running: root.auto
+        stdout: StdioCollector { onStreamFinished: root.onMonitors(this.text) }
+    }
+    Process { id: closeProc; onExited: Qt.exit(0) }
+    // hyprctl không chạy được / không trả lời thì thoát thay vì treo
+    Timer { interval: 3000; running: root.auto; repeat: false; onTriggered: if (!root.gotWindow) Qt.exit(1) }
+    // Yes (chế độ tự động): ẩn dialog cho focus trả về cửa sổ rồi mới đóng
+    Timer { id: closeDelay; interval: 120; repeat: false; onTriggered: root.closeWindow() }
 
     // ===== Màn hình hiện dialog: màn chứa cửa sổ bị đóng (fallback: màn đầu tiên) =====
     readonly property string primaryName: {
@@ -56,12 +132,15 @@ ShellRoot {
         id: exitTimer
         interval: Math.max(480, root.outroMs + 20)
         repeat: false
-        onTriggered: Qt.exit(root.exitCode)
+        onTriggered: {
+            if (root.auto && root.exitCode === 0) { root.showDialog = false; closeDelay.restart() }
+            else Qt.exit(root.exitCode)
+        }
     }
 
     // ===== Một cửa sổ layer-shell phủ mỗi màn hình; thẻ chỉ hiện ở màn chính =====
     Variants {
-        model: Quickshell.screens
+        model: root.showDialog ? Quickshell.screens : []
 
         PanelWindow {
             id: win
@@ -94,7 +173,7 @@ ShellRoot {
                 anchors.centerIn: parent
                 scaleU: Math.max(0.6, Math.min(win.width / 1920, win.height / 1080)) * root.scaleBoost
                 closing: root.resolving
-                appName: root.appName
+                appName: root.appName || "ứng dụng"
                 appTitle: root.appTitle
                 appWs: root.appWs
                 bgColor: colors.adapter.surface
